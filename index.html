@@ -714,12 +714,13 @@ function service(alta) {
   return {years, last: dfmt(last), next: dfmt(at(years + 1)), months: diffM(a, now), monthsSince: diffM(last, now)};
 }
 function vacBalance(e) {
-  const sv = service(e.alta), taken = S.vac.filter(v => v.empId === e.id && (sv.years < 1 || v.from >= sv.last)).reduce((s, v) => s + v.days, 0);
+  const sv = service(e.alta), mine = S.vac.filter(v => v.empId === e.id), cuenta = v => sv.years < 1 || v.from >= sv.last || v.cuenta;
+  const taken = mine.filter(cuenta).reduce((s, v) => s + v.days, 0), antes = mine.filter(v => !cuenta(v)).reduce((s, v) => s + v.days, 0);
   let entitled, note = '';
   if (sv.years < 1) { const d = Math.max(0, (dparse(today()) - dparse(e.alta)) / 864e5); entitled = Math.floor(vacDays(1) * Math.min(d, 365) / 365 * 2) / 2; note = 'proporcional'; }
   else entitled = vacDays(sv.years);
   const prev = +e.prev || 0;
-  return {...sv, entitled, prev, taken, avail: entitled + prev - taken, note};
+  return {...sv, entitled, prev, taken, antes, avail: entitled + prev - taken, note};
 }
 const vacTracking = () => S.vac.length > 0 || S.team.some(e => +e.prev);
 const yearMonths = () => Array.from({length: 12}, (_, i) => new Date().getFullYear() + '-' + String(i + 1).padStart(2, '0'));
@@ -758,14 +759,14 @@ function vVac() {
   return `
   <div class="bar"><button class="b" data-a="vac-new">+ Registrar vacaciones</button><button class="g" data-a="emp-new">+ Agregar persona</button></div>
   <div class="card"><h2>Saldo de vacaciones por persona</h2><div class="tbl"><table>
-    <thead><tr><th>Persona</th><th>Alta</th><th>Antigüedad</th><th class="n">Corresponden</th><th class="n">Ajuste</th><th class="n">Tomados</th><th class="n">Disponibles</th><th>Estado</th><th></th></tr></thead><tbody>
+    <thead><tr><th>Persona</th><th>Alta</th><th>Antigüedad</th><th class="n">Corresponden</th><th class="n">Ajuste</th><th class="n">Tomados este año</th><th class="n">Disponibles</th><th>Estado</th><th></th></tr></thead><tbody>
     ${rows.map(r => `<tr><td style="min-width:200px">${esc(r.e.name)}<div class="mut" style="font-size:12px">${esc(r.e.area || '')} · <a href="#" data-a="emp-edit" data-id="${r.e.id}">editar</a></div></td><td style="white-space:nowrap">${fmtDate(r.e.alta)}</td>
       <td style="white-space:nowrap">${r.b.years >= 1 ? r.b.years + (r.b.years === 1 ? ' año' : ' años') : r.b.months + ' meses'}<div class="mut" style="font-size:11px">aniversario ${fmtDate(r.b.next)}</div></td>
-      <td class="n">${r.b.entitled}${r.b.note ? '<div class="mut" style="font-size:11px">' + r.b.note + '</div>' : ''}</td><td class="n">${r.b.prev || '—'}</td><td class="n">${r.b.taken}</td>
+      <td class="n">${r.b.entitled}${r.b.note ? '<div class="mut" style="font-size:11px">' + r.b.note + '</div>' : ''}</td><td class="n">${r.b.prev || '—'}</td><td class="n">${r.b.taken}${r.b.antes ? `<div class="mut" style="font-size:11px;white-space:normal;max-width:130px" title="Vacaciones registradas antes de su último aniversario (${fmtDate(r.b.last)}): pertenecen al año de servicio anterior y no descuentan de este saldo. Edítalas y marca “Descontar de este año” si sí deben contar.">+${r.b.antes} de años anteriores</div>` : ''}</td>
       <td class="n"><b>${r.b.avail}</b></td><td style="white-space:nowrap">${tag(r)}</td>
       <td class="n"><button class="g" data-a="vac-new" data-id="${r.e.id}">Registrar</button></td></tr>`).join('')}
     </tbody></table></div>
-    <p class="mut" style="margin:12px 0 0">Corresponden = días del año de servicio vigente según la ley (12 el primer año, 14 el segundo… 20 el quinto, 22 del sexto al décimo). Se cuentan los días laborales de lunes a sábado (el domingo descansa), o de lunes a viernes si así trabaja la persona. La ley pide otorgarlas dentro de los 6 meses siguientes al aniversario y pagar una <b>prima vacacional de al menos 25%</b> sobre esos días. “Ajuste” = días de periodos anteriores sin tomar (+) o ya tomados antes de usar la app (−). ${vacTracking() ? '' : '<br><b>Los saldos son teóricos hasta que captures las vacaciones que ya tomaron: usa “Registrar” o “Editar → ajuste”. Mientras tanto no se activan los avisos de vencimiento.</b>'}</p></div>
+    <p class="mut" style="margin:12px 0 0">Corresponden = días del año de servicio vigente según la ley (12 el primer año, 14 el segundo… 20 el quinto, 22 del sexto al décimo). Se cuentan los días laborales de lunes a sábado (el domingo descansa), o de lunes a viernes si así trabaja la persona. La ley pide otorgarlas dentro de los 6 meses siguientes al aniversario y pagar una <b>prima vacacional de al menos 25%</b> sobre esos días. “Tomados este año” = vacaciones desde el último aniversario de la persona (cada año de servicio tiene sus propios días); las anteriores se muestran como “+N de años anteriores” y no descuentan, salvo que en el registro marques “Descontar de este año”. “Ajuste” = días de periodos anteriores sin tomar (+) o ya tomados antes de usar la app (−). ${vacTracking() ? '' : '<br><b>Los saldos son teóricos hasta que captures las vacaciones que ya tomaron: usa “Registrar” o “Editar → ajuste”. Mientras tanto no se activan los avisos de vencimiento.</b>'}</p></div>
   <div class="card"><h2>Calendario de vacaciones</h2>
     <div class="bar"><select data-f="vacMes">${yearMonths().map(k => `<option value="${k}" ${k === m ? 'selected' : ''}>${mesLabel(k)}</option>`).join('')}</select></div>
     ${calGrid(m, items)}
@@ -842,10 +843,11 @@ function rangeDialog(kind, rec, empId) {
     ${isVac ? '' : `<label>Tipo<select name="type">${Object.entries(INC).map(([k, v]) => `<option value="${k}">${v.l}</option>`).join('')}</select></label>`}
     <div class="two"><label>Desde<input type="date" name="from" required></label><label>Hasta<input type="date" name="to" required></label></div>
     <label>Días laborales (lunes a sábado; puedes corregirlo, ej. 0.5)<input type="text" inputmode="decimal" name="days" required></label>
+    ${isVac ? '<label class="row" style="display:flex;gap:8px;align-items:flex-start;text-transform:none;letter-spacing:0;font-size:13px;color:var(--fg);margin:6px 0"><input type="checkbox" name="cuenta" style="width:auto;margin-top:3px"><span>Descontar de las vacaciones de este año<br><span class="mut" style="font-size:12px">Si las fechas son de antes del último aniversario de la persona, normalmente pertenecen al año anterior y no descuentan. Márcalo para que sí cuenten en el saldo actual.</span></span></label>' : ''}
     <label>${isVac ? 'Notas' : 'Motivo o folio de incapacidad'}<textarea name="notes" rows="2"></textarea></label>
     <div class="bar" style="margin:16px 0 0">${isNew ? '' : '<button type="button" class="x" id="del">Eliminar</button>'}<span style="flex:1"></span><button type="button" class="g" id="cancel">Cancelar</button><button class="b">Guardar</button></div></form>`;
   const f = $('#f'), el = f.elements;
-  el.empId.value = rec.empId; if (el.type) el.type.value = rec.type; el.from.value = rec.from; el.to.value = rec.to || rec.from; el.days.value = rec.days; el.notes.value = rec.notes || '';
+  el.empId.value = rec.empId; if (el.type) el.type.value = rec.type; el.from.value = rec.from; el.to.value = rec.to || rec.from; el.days.value = rec.days; el.notes.value = rec.notes || ''; if (el.cuenta) el.cuenta.checked = !!rec.cuenta;
   let manual = !isNew;
   const recalc = () => { if (manual) return; el.days.value = (el.type && el.type.value === 'retardo') ? 1 : businessDays(el.from.value, el.to.value || el.from.value, semanaDe(S.team.find(x => x.id === el.empId.value))); };
   el.from.onchange = () => { if (el.to.value < el.from.value) el.to.value = el.from.value; recalc(); };
@@ -859,7 +861,7 @@ function rangeDialog(kind, rec, empId) {
     if (el.to.value < el.from.value) { toast('La fecha final no puede ser anterior a la inicial.', true); ev.preventDefault(); return; }
     if (!(days > 0)) { toast('Captura los días (mayor a 0).', true); el.days.classList.add('err'); ev.preventDefault(); return; }
     const n = {...rec, empId: el.empId.value, from: el.from.value, to: el.to.value, days, notes: el.notes.value.trim()};
-    if (el.type) n.type = el.type.value;
+    if (el.type) n.type = el.type.value; if (isVac) { delete n.type; n.cuenta = el.cuenta.checked; }
     S[list] = isNew ? [...S[list], n] : S[list].map(x => x.id === rec.id ? n : x); save(); render(); toast('Guardado ✓');
   };
   d.showModal();
@@ -1297,7 +1299,7 @@ function vRespaldo() {
     <p class="mut">Carga el archivo que descargas en el portal (Exportar a Finanzas). Actualiza <b>Vacaciones e Incidencias</b> con lo que hay en el portal, para tener el concentrado de todo el negocio, y trae los reembolsos de viáticos pagados: cada uno queda como gasto de Viáticos con su ticket y su factura, y se empareja con el movimiento del banco (o se concilia solo cuando cargues ese estado de cuenta). Puedes cargarlo las veces que quieras: no duplica.</p>
     <div class="bar"><label class="g">Elegir archivo del portal<input type="file" id="viaFile" accept=".json" hidden></label></div><div id="viaMsg"></div></div>
   <div class="card"><h2>Respaldo y exportación</h2>
-    <p class="mut">Tus datos viven solo en este navegador. Descarga un respaldo con frecuencia. El respaldo incluye movimientos, cuentas y categorías, <b>pero no los archivos de facturas adjuntas</b> (esos se guardan aparte en el navegador).</p>
+    <p class="mut">Tus datos viven en tu base de datos de Firebase (en la nube), no en esta computadora. Descarga un respaldo con frecuencia. El respaldo incluye movimientos, cuentas y categorías, <b>pero no los archivos de facturas adjuntas</b> (esos se guardan aparte en el navegador).</p>
     <div class="bar"><button class="b" data-a="backup">Descargar respaldo (.json)</button>
     <button class="g" data-a="csv">Exportar movimientos (.csv para Excel)</button>
     <label class="g">Restaurar respaldo<input type="file" id="restore" accept=".json" hidden></label>
