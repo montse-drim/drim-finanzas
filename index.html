@@ -769,14 +769,14 @@ function vacProgramadas() {
 }
 /* ---------- Auditor de RH: alertas y recomendaciones (orientación general con base en la LFT) ---------- */
 const MESES_L = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
-function cumple(nac) {
-  if (!nac) return null;
-  const n = dparse(nac), h = dparse(today()); let edad = h.getFullYear() - n.getFullYear();
-  const fecha = y => { const d = new Date(y, n.getMonth(), n.getDate(), 12); if (d.getMonth() !== n.getMonth()) d.setDate(0); return d; }; // 29 feb en año no bisiesto → 28 feb
-  let prox = fecha(h.getFullYear()); if (prox < dparse(today())) { prox = fecha(h.getFullYear() + 1); }
-  if (fecha(h.getFullYear()) > h) edad--;
-  const dias = Math.round((prox - h) / 864e5);
-  return {edad, dias, texto: n.getDate() + ' de ' + MESES_L[n.getMonth()], cumplira: edad + 1};
+// Cumpleaños: con fecha de nacimiento completa (e.nac) se calcula también la edad; con solo día y mes (e.cumple = 'MM-DD') solo el cumpleaños
+function cumple(e) {
+  const nac = e && e.nac, md = nac ? nac.slice(5) : (e && e.cumple) || ''; if (!md) return null;
+  const [mm, dd] = md.split('-').map(Number), h = dparse(today());
+  const fecha = y => { const d = new Date(y, mm - 1, dd, 12); if (d.getMonth() !== mm - 1) d.setDate(0); return d; }; // 29 feb en año no bisiesto → 28 feb
+  let prox = fecha(h.getFullYear()); if (prox < h) prox = fecha(h.getFullYear() + 1);
+  let edad = null; if (nac) { edad = h.getFullYear() - +nac.slice(0, 4); if (fecha(h.getFullYear()) > h) edad--; }
+  return {edad, dias: Math.round((prox - h) / 864e5), texto: dd + ' de ' + MESES_L[mm - 1], cumplira: edad == null ? null : edad + 1};
 }
 function auditoriaRH() {
   const A = [], hoy = today(), dias = n => n + (n === 1 ? ' día' : ' días');
@@ -802,7 +802,7 @@ function auditoriaRH() {
     // 4) aniversario próximo
     if (b.next <= desde(30) && b.next >= hoy) add('i', e, n + ' cumple ' + (b.years + 1) + (b.years + 1 === 1 ? ' año' : ' años') + ' el ' + fmtDate(b.next), 'Sus vacaciones pasan de ' + (b.years < 1 ? 'proporcionales' : dias(vacDays(b.years))) + ' a ' + dias(vacDays(b.years + 1)) + ' y empieza un nuevo plazo de 6 meses para otorgarlas.');
     // cumpleaños próximos
-    const cu = cumple(e.nac); if (cu && cu.dias <= 7) add('i', e, cu.dias === 0 ? '¡Hoy es cumpleaños de ' + n + '!' : 'Cumpleaños de ' + n + ' ' + (cu.dias === 1 ? 'mañana' : 'en ' + cu.dias + ' días'), 'Cumple ' + cu.cumplira + ' años el ' + cu.texto + '.');
+    const cu = cumple(e); if (cu && cu.dias <= 7) add('i', e, cu.dias === 0 ? '¡Hoy es cumpleaños de ' + n + '!' : 'Cumpleaños de ' + n + ' ' + (cu.dias === 1 ? 'mañana' : 'en ' + cu.dias + ' días'), (cu.cumplira ? 'Cumple ' + cu.cumplira + ' años el ' : 'Su cumpleaños es el ') + cu.texto + '.');
     // 5) faltas y retardos de los últimos 30 días
     const f30 = S.inc.filter(i => i.empId === e.id && i.type === 'falta' && i.from >= desde(-30) && i.from <= hoy).length;
     const r30 = S.inc.filter(i => i.empId === e.id && i.type === 'retardo' && i.from >= desde(-30) && i.from <= hoy).length;
@@ -946,7 +946,7 @@ function fichaDialog(id) {
   const tiposOk = DOC_TIPOS.filter(t => docs.some(x => x.kind === t)).length, otros = docs.filter(x => !DOC_TIPOS.includes(x.kind));
   d.style.width = 'min(780px,95vw)'; d.style.maxHeight = '92vh'; d.style.overflow = 'auto';
   if (!d.open) EXP_OPEN = false; d.dataset.ficha = id; d.addEventListener('close', () => { d.style.width = ''; d.style.maxHeight = ''; d.style.overflow = ''; delete d.dataset.ficha; }, {once: true});
-  d.innerHTML = `<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div style="display:flex;gap:16px;align-items:center"><div style="text-align:center">${avatar(e, 'lg')}<div style="margin-top:6px;font-size:12px"><label style="cursor:pointer;color:var(--link);text-decoration:underline">${e.photo ? 'Cambiar' : 'Agregar foto'}<input type="file" hidden accept="image/*" id="fotoIn"></label>${e.photo ? ` · <a href="#" data-a="foto-del" data-id="${e.id}" class="bad">quitar</a>` : ''}</div></div><div><h2 style="margin:0">${esc(e.name)}</h2><div class="mut" style="margin-top:2px">${esc(e.area || 'Sin puesto')} · alta ${fmtDate(e.alta)} · ${b.years >= 1 ? b.years + (b.years === 1 ? ' año' : ' años') : b.months + ' meses'} de antigüedad</div>${(() => { const cu = cumple(e.nac); return cu ? `<div style="margin-top:2px"><b>${cu.edad} años</b> · cumpleaños el ${cu.texto}${cu.dias === 0 ? ' <span class="tag c">¡hoy!</span>' : cu.dias <= 30 ? ` <span class="tag p">en ${cu.dias} ${cu.dias === 1 ? 'día' : 'días'}</span>` : ''}</div>` : `<div class="mut" style="margin-top:2px">Sin fecha de nacimiento · <a href="#" data-a="emp-edit" data-id="${e.id}">agregar</a></div>`; })()}</div></div><button type="button" class="g" id="fx">Cerrar</button></div>
+  d.innerHTML = `<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div style="display:flex;gap:16px;align-items:center"><div style="text-align:center">${avatar(e, 'lg')}<div style="margin-top:6px;font-size:12px"><label style="cursor:pointer;color:var(--link);text-decoration:underline">${e.photo ? 'Cambiar' : 'Agregar foto'}<input type="file" hidden accept="image/*" id="fotoIn"></label>${e.photo ? ` · <a href="#" data-a="foto-del" data-id="${e.id}" class="bad">quitar</a>` : ''}</div></div><div><h2 style="margin:0">${esc(e.name)}</h2><div class="mut" style="margin-top:2px">${esc(e.area || 'Sin puesto')} · alta ${fmtDate(e.alta)} · ${b.years >= 1 ? b.years + (b.years === 1 ? ' año' : ' años') : b.months + ' meses'} de antigüedad</div>${(() => { const cu = cumple(e); return cu ? `<div style="margin-top:2px">${cu.edad != null ? `<b>${cu.edad} años</b> · ` : ''}cumpleaños el ${cu.texto}${cu.dias === 0 ? ' <span class="tag c">¡hoy!</span>' : cu.dias <= 30 ? ` <span class="tag p">en ${cu.dias} ${cu.dias === 1 ? 'día' : 'días'}</span>` : ''}${cu.edad == null ? ` · <a href="#" data-a="emp-edit" data-id="${e.id}">agregar año de nacimiento</a>` : ''}</div>` : `<div class="mut" style="margin-top:2px">Sin fecha de nacimiento · <a href="#" data-a="emp-edit" data-id="${e.id}">agregar</a></div>`; })()}</div></div><button type="button" class="g" id="fx">Cerrar</button></div>
     ${auditCard(auditoriaRH().filter(a => a.emp === e.id), 'ficha')}
     <div class="grid" style="margin:16px 0 0;grid-template-columns:repeat(4,1fr)">
       <div class="card kpi" style="padding:12px"><div class="l">Corresponden</div><div class="v" style="font-size:20px">${b.entitled}</div></div>
