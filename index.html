@@ -47,6 +47,8 @@ tbody tr:hover td{background:var(--hover)}
 tbody tr:last-child td{border-bottom:0}
 td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .tbl{overflow-x:auto}
+.av{width:30px;height:30px;border-radius:50%;background:var(--field) center/cover no-repeat;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--mut);vertical-align:middle;margin-right:10px;flex:none;overflow:hidden}
+.av.lg{width:76px;height:76px;font-size:24px;margin-right:0}
 .tag{display:inline-block;padding:1px 9px;border-radius:99px;font-size:11px;border:1px solid var(--bd);color:var(--mut);margin-right:4px;white-space:nowrap}
 .tag.p{color:var(--warn);border-color:var(--warn)}.tag.c{color:var(--ok);border-color:var(--ok)}.tag.r{color:var(--bad);border-color:var(--bad)}
 .alert{border-left:3px solid var(--acc)}.alert.r{border-left-color:var(--bad)}.alert.g{border-left-color:var(--ok)}
@@ -319,6 +321,24 @@ const GROUPS = [
 ];
 const VLABEL = {resumen: 'Resumen', movs: 'Movimientos', balanza: 'Balanza (mes y año)', cuentas: 'Cuentas y saldos', efectivo: 'Efectivo', datos: 'Cargar estados de cuenta', clientes: 'Clientes (cobranza)', pagar: 'Por pagar', iva: 'IVA', facturas: 'Facturas', vacaciones: 'Vacaciones', incidencias: 'Incidencias', cats: 'Categorías', respaldo: 'Respaldo y portal'};
 const LASTV = {};
+/* ---------- Fotos de perfil ---------- */
+const FOTO = new Map(); // id del archivo -> url local para mostrarla
+const iniciales = n => String(n || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+const avatar = (e, cls = '') => `<span class="av ${cls}" data-foto="${e.id}" title="${esc(e.name)}">${e.photo ? '' : esc(iniciales(e.name))}</span>`;
+async function hydrateFotos() {
+  for (const el of document.querySelectorAll('[data-foto]')) {
+    const e = S.team.find(x => x.id === el.dataset.foto); if (!e || !e.photo) continue;
+    let u = FOTO.get(e.photo.id);
+    if (!u) { try { const b = await fget(e.photo.id); if (b) { u = URL.createObjectURL(b); FOTO.set(e.photo.id, u); } } catch {} }
+    if (u) { el.style.backgroundImage = 'url(' + u + ')'; el.textContent = ''; }
+  }
+}
+// recorta al centro y reduce a 400 px: la foto pesa ~50 KB y carga rápido
+async function fotoCuadrada(file) {
+  const bmp = await createImageBitmap(file), s = Math.min(bmp.width, bmp.height), c = document.createElement('canvas'); c.width = c.height = 400;
+  c.getContext('2d').drawImage(bmp, (bmp.width - s) / 2, (bmp.height - s) / 2, s, s, 0, 0, 400, 400);
+  return await new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error('no se pudo')), 'image/jpeg', 0.85));
+}
 function render() {
   const nFac = S.tx.filter(needsInvoice).length, nRet = S.clientes.filter(c => cobranza(c).venc > cuota(c) * 0.5).length, grp = GROUPS.find(g => g[1].includes(view)) || GROUPS[0];
   LASTV[grp[0]] = view;
@@ -327,7 +347,7 @@ function render() {
   $('#nav').innerHTML = GROUPS.map(g => `<button class="${g === grp ? 'on' : ''}" data-v="${LASTV[g[0]] || g[1][0]}">${g[0]}${gb(g)}</button>`).join('');
   $('#sub').innerHTML = grp[1].length > 1 ? grp[1].map(k => `<button class="${view === k ? 'on' : ''}" data-v="${k}">${VLABEL[k]}${bd(k)}</button>`).join('') : '';
   $('#app').innerHTML = (STORAGE_OK ? '' : '<div class="banner">⚠️ Este visor no permite guardar datos. Lo que captures aquí se pierde al cerrar. Abre <b>finanzas.html</b> con doble clic en Chrome o Safari.</div>') + ({resumen: vResumen, movs: vMovs, efectivo: vEfectivo, iva: vIVA, balanza: vBalanza, clientes: vClientes, pagar: vPagar, vacaciones: vVac, incidencias: vInc, facturas: vFacturas, datos: vDatos, cuentas: vCuentas, cats: vCats, respaldo: vRespaldo})[view]();
-  bindDrops();
+  bindDrops(); hydrateFotos();
 }
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-v]'); if (t) { view = t.dataset.v; render(); scrollTo(0, 0); }
@@ -760,7 +780,7 @@ function vVac() {
   <div class="bar"><button class="b" data-a="vac-new">+ Registrar vacaciones</button><button class="g" data-a="emp-new">+ Agregar persona</button></div>
   <div class="card"><h2>Saldo de vacaciones por persona</h2><div class="tbl"><table>
     <thead><tr><th>Persona</th><th>Alta</th><th>Antigüedad</th><th class="n">Corresponden</th><th class="n">Ajuste</th><th class="n">Tomados este año</th><th class="n">Disponibles</th><th>Estado</th><th></th></tr></thead><tbody>
-    ${rows.map(r => `<tr><td style="min-width:200px"><a href="#" data-a="emp-ficha" data-id="${r.e.id}" style="color:inherit;font-weight:600;text-decoration:none">${esc(r.e.name)}</a><div class="mut" style="font-size:12px">${esc(r.e.area || '')} · <a href="#" data-a="emp-ficha" data-id="${r.e.id}">ver ficha</a> · <a href="#" data-a="emp-edit" data-id="${r.e.id}">editar</a></div></td><td style="white-space:nowrap">${fmtDate(r.e.alta)}</td>
+    ${rows.map(r => `<tr><td style="min-width:200px"><div style="display:flex;align-items:center">${avatar(r.e)}<div><a href="#" data-a="emp-ficha" data-id="${r.e.id}" style="color:inherit;font-weight:600;text-decoration:none">${esc(r.e.name)}</a><div class="mut" style="font-size:12px">${esc(r.e.area || '')} · <a href="#" data-a="emp-ficha" data-id="${r.e.id}">ver ficha</a> · <a href="#" data-a="emp-edit" data-id="${r.e.id}">editar</a></div></div></div></td><td style="white-space:nowrap">${fmtDate(r.e.alta)}</td>
       <td style="white-space:nowrap">${r.b.years >= 1 ? r.b.years + (r.b.years === 1 ? ' año' : ' años') : r.b.months + ' meses'}<div class="mut" style="font-size:11px">aniversario ${fmtDate(r.b.next)}</div></td>
       <td class="n">${r.b.entitled}${r.b.note ? '<div class="mut" style="font-size:11px">' + r.b.note + '</div>' : ''}</td><td class="n">${r.b.prev || '—'}</td><td class="n">${r.b.taken}${r.b.antes ? `<div class="mut" style="font-size:11px;white-space:normal;max-width:130px" title="Vacaciones registradas antes de su último aniversario (${fmtDate(r.b.last)}): pertenecen al año de servicio anterior y no descuentan de este saldo. Edítalas y marca “Descontar de este año” si sí deben contar.">+${r.b.antes} de años anteriores</div>` : ''}</td>
       <td class="n"><b>${r.b.avail}</b></td><td style="white-space:nowrap">${tag(r)}</td>
@@ -830,7 +850,7 @@ function empDialog(e) {
     <div class="bar" style="margin:16px 0 0">${isNew ? '' : '<button type="button" class="x" id="del">Eliminar</button>'}<span style="flex:1"></span><button type="button" class="g" id="cancel">Cancelar</button><button class="b">Guardar</button></div></form>`;
   const f = $('#f'); f.elements.name.value = e.name; f.elements.area.value = e.area || ''; f.elements.alta.value = e.alta; f.elements.prev.value = e.prev || '';
   $('#cancel').onclick = () => d.close();
-  if ($('#del')) $('#del').onclick = () => askConfirm('¿Eliminar a esta persona y todas sus vacaciones e incidencias?', () => { (e.docs || []).forEach(x => fdel(x.id)); S.team = S.team.filter(x => x.id !== e.id); S.vac = S.vac.filter(x => x.empId !== e.id); S.inc = S.inc.filter(x => x.empId !== e.id); save(); $('#dlg').close(); render(); });
+  if ($('#del')) $('#del').onclick = () => askConfirm('¿Eliminar a esta persona y todas sus vacaciones e incidencias?', () => { (e.docs || []).forEach(x => fdel(x.id)); if (e.photo) fdel(e.photo.id); S.team = S.team.filter(x => x.id !== e.id); S.vac = S.vac.filter(x => x.empId !== e.id); S.inc = S.inc.filter(x => x.empId !== e.id); save(); $('#dlg').close(); render(); });
   f.onsubmit = () => { const n = {...e, name: f.elements.name.value.trim(), area: f.elements.area.value.trim(), alta: f.elements.alta.value, prev: num(f.elements.prev.value)}; S.team = isNew ? [...S.team, n] : S.team.map(x => x.id === e.id ? n : x); save(); render(); toast('Persona guardada ✓'); };
   if (!d.open) d.showModal();
 }
@@ -855,7 +875,7 @@ function fichaDialog(id) {
   const tiposOk = DOC_TIPOS.filter(t => docs.some(x => x.kind === t)).length, otros = docs.filter(x => !DOC_TIPOS.includes(x.kind));
   d.style.width = 'min(780px,95vw)'; d.style.maxHeight = '92vh'; d.style.overflow = 'auto';
   d.dataset.ficha = id; d.addEventListener('close', () => { d.style.width = ''; d.style.maxHeight = ''; d.style.overflow = ''; delete d.dataset.ficha; }, {once: true});
-  d.innerHTML = `<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div><h2 style="margin:0">${esc(e.name)}</h2><div class="mut" style="margin-top:2px">${esc(e.area || 'Sin puesto')} · alta ${fmtDate(e.alta)} · ${b.years >= 1 ? b.years + (b.years === 1 ? ' año' : ' años') : b.months + ' meses'} de antigüedad</div></div><button type="button" class="g" id="fx">Cerrar</button></div>
+  d.innerHTML = `<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div style="display:flex;gap:16px;align-items:center"><div style="text-align:center">${avatar(e, 'lg')}<div style="margin-top:6px;font-size:12px"><label style="cursor:pointer;color:var(--link);text-decoration:underline">${e.photo ? 'Cambiar' : 'Agregar foto'}<input type="file" hidden accept="image/*" id="fotoIn"></label>${e.photo ? ` · <a href="#" data-a="foto-del" data-id="${e.id}" class="bad">quitar</a>` : ''}</div></div><div><h2 style="margin:0">${esc(e.name)}</h2><div class="mut" style="margin-top:2px">${esc(e.area || 'Sin puesto')} · alta ${fmtDate(e.alta)} · ${b.years >= 1 ? b.years + (b.years === 1 ? ' año' : ' años') : b.months + ' meses'} de antigüedad</div></div></div><button type="button" class="g" id="fx">Cerrar</button></div>
     <div class="grid" style="margin:16px 0 0;grid-template-columns:repeat(4,1fr)">
       <div class="card kpi" style="padding:12px"><div class="l">Corresponden</div><div class="v" style="font-size:20px">${b.entitled}</div></div>
       <div class="card kpi" style="padding:12px"><div class="l">Ajuste</div><div class="v" style="font-size:20px">${b.prev || '—'}</div></div>
@@ -870,6 +890,12 @@ function fichaDialog(id) {
     <div style="border-top:1px solid var(--bd);padding:8px 0"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span>Otros documentos</span>${upBtn('Otro')}</div>${otros.map(fileRow).join('')}</div>
     <div class="bar" style="margin:18px 0 0"><button type="button" class="g" data-a="emp-edit" data-id="${e.id}">Editar datos</button></div>`;
   $('#fx').onclick = () => d.close();
+  hydrateFotos();
+  $('#fotoIn').onchange = async ev => {
+    const f = ev.target.files[0]; if (!f) return;
+    try { const blob = await fotoCuadrada(f), fid = uid(), cur = S.team.find(x => x.id === id); await fput(fid, blob); if (cur.photo) fdel(cur.photo.id); cur.photo = {id: fid}; save(); toast('Foto guardada ✓'); render(); fichaDialog(id); }
+    catch { toast('No pude leer esa imagen. Prueba con JPG o PNG.', true); }
+  };
   d.querySelectorAll('input[data-kind]').forEach(inp => inp.onchange = async () => {
     const cur = S.team.find(x => x.id === id); let n = 0;
     for (const f of [...inp.files]) {
@@ -1500,6 +1526,7 @@ const actions = {
   'emp-new': () => empDialog(),
   'emp-edit': id => empDialog(S.team.find(e => e.id === id)),
   'emp-ficha': id => fichaDialog(id),
+  'foto-del': id => { const e = S.team.find(x => x.id === id); if (e && e.photo) { fdel(e.photo.id); delete e.photo; save(); render(); fichaDialog(id); toast('Foto quitada'); } },
   'doc-open': id => openFile(id),
   'doc-del': (id, el) => askConfirm('¿Quitar este documento del expediente?', () => { const emp = S.team.find(x => x.id === el.dataset.emp); if (!emp) return; emp.docs = (emp.docs || []).filter(x => x.id !== id); fdel(id); save(); fichaDialog(emp.id); toast('Documento quitado'); }),
   'vac-new': id => S.team.length ? rangeDialog('vac', null, id) : toast('Primero agrega a una persona.', true),
