@@ -128,7 +128,7 @@ function askConfirm(msg, fn) {
   d.innerHTML = `<form method="dialog"><p style="margin-top:0">${String(msg).replace(/</g, '&lt;')}</p><div class="bar" style="justify-content:flex-end;margin:16px 0 0"><button type="button" class="g" data-x="no">Cancelar</button><button type="button" class="b" data-x="si">Aceptar</button></div></form>`;
   d.querySelector('[data-x=no]').onclick = () => d.close();
   d.querySelector('[data-x=si]').onclick = () => { d.close(); fn(); };
-  d.showModal();
+  if (!d.open) d.showModal();
 }
 function askText(title, val, fn) {
   const d = document.getElementById('dlg2');
@@ -136,7 +136,7 @@ function askText(title, val, fn) {
   d.querySelector('#askIn').value = val || '';
   d.querySelector('[data-x=no]').onclick = () => d.close();
   d.querySelector('form').onsubmit = () => { const v = d.querySelector('#askIn').value.trim(); if (v) fn(v); };
-  d.showModal();
+  if (!d.open) d.showModal();
 }
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -523,7 +523,7 @@ function txDialog(t) {
       save(); render(); toast('Movimiento guardado ✓');
     };
   };
-  draw(); d.showModal();
+  draw(); if (!d.open) d.showModal();
 }
 
 
@@ -608,7 +608,7 @@ function efInDialog() {
       catId: cobro ? (S.cats.find(x => x.name === 'Ventas / Servicios')?.id || '') : '', desc: f.desc.value || (cobro ? 'Cobro en efectivo' : 'Retiro de efectivo'), party: '', ref: '', status: 'pagado', reconciled: !cobro, noInv: false, notes: '', files: [], log: ['Creado ' + new Date().toLocaleString('es-MX')]});
     F.efMes = ym(f.date.value); save(); render(); toast('Entrada de efectivo guardada ✓');
   };
-  d.showModal();
+  if (!d.open) d.showModal();
 }
 
 /* ---------- IVA ---------- */
@@ -760,7 +760,7 @@ function vVac() {
   <div class="bar"><button class="b" data-a="vac-new">+ Registrar vacaciones</button><button class="g" data-a="emp-new">+ Agregar persona</button></div>
   <div class="card"><h2>Saldo de vacaciones por persona</h2><div class="tbl"><table>
     <thead><tr><th>Persona</th><th>Alta</th><th>Antigüedad</th><th class="n">Corresponden</th><th class="n">Ajuste</th><th class="n">Tomados este año</th><th class="n">Disponibles</th><th>Estado</th><th></th></tr></thead><tbody>
-    ${rows.map(r => `<tr><td style="min-width:200px">${esc(r.e.name)}<div class="mut" style="font-size:12px">${esc(r.e.area || '')} · <a href="#" data-a="emp-edit" data-id="${r.e.id}">editar</a></div></td><td style="white-space:nowrap">${fmtDate(r.e.alta)}</td>
+    ${rows.map(r => `<tr><td style="min-width:200px"><a href="#" data-a="emp-ficha" data-id="${r.e.id}" style="color:inherit;font-weight:600;text-decoration:none">${esc(r.e.name)}</a><div class="mut" style="font-size:12px">${esc(r.e.area || '')} · <a href="#" data-a="emp-ficha" data-id="${r.e.id}">ver ficha</a> · <a href="#" data-a="emp-edit" data-id="${r.e.id}">editar</a></div></td><td style="white-space:nowrap">${fmtDate(r.e.alta)}</td>
       <td style="white-space:nowrap">${r.b.years >= 1 ? r.b.years + (r.b.years === 1 ? ' año' : ' años') : r.b.months + ' meses'}<div class="mut" style="font-size:11px">aniversario ${fmtDate(r.b.next)}</div></td>
       <td class="n">${r.b.entitled}${r.b.note ? '<div class="mut" style="font-size:11px">' + r.b.note + '</div>' : ''}</td><td class="n">${r.b.prev || '—'}</td><td class="n">${r.b.taken}${r.b.antes ? `<div class="mut" style="font-size:11px;white-space:normal;max-width:130px" title="Vacaciones registradas antes de su último aniversario (${fmtDate(r.b.last)}): pertenecen al año de servicio anterior y no descuentan de este saldo. Edítalas y marca “Descontar de este año” si sí deben contar.">+${r.b.antes} de años anteriores</div>` : ''}</td>
       <td class="n"><b>${r.b.avail}</b></td><td style="white-space:nowrap">${tag(r)}</td>
@@ -822,7 +822,7 @@ function vInc() {
 /* ---------- Diálogos ---------- */
 function empDialog(e) {
   const isNew = !e; e = e || {id: uid(), name: '', area: '', alta: today(), prev: 0};
-  const d = $('#dlg');
+  const d = $('#dlg'); const back = d.dataset.ficha; if (back) d.addEventListener('close', () => { if (S.team.some(x => x.id === back)) fichaDialog(back); }, {once: true});
   d.innerHTML = `<form method="dialog" id="f"><h2 style="margin-top:0">${isNew ? 'Agregar persona' : 'Editar persona'}</h2>
     <label>Nombre completo<input name="name" required></label>
     <div class="two"><label>Área o puesto<input name="area"></label><label>Fecha de alta<input type="date" name="alta" required></label></div>
@@ -830,14 +830,62 @@ function empDialog(e) {
     <div class="bar" style="margin:16px 0 0">${isNew ? '' : '<button type="button" class="x" id="del">Eliminar</button>'}<span style="flex:1"></span><button type="button" class="g" id="cancel">Cancelar</button><button class="b">Guardar</button></div></form>`;
   const f = $('#f'); f.elements.name.value = e.name; f.elements.area.value = e.area || ''; f.elements.alta.value = e.alta; f.elements.prev.value = e.prev || '';
   $('#cancel').onclick = () => d.close();
-  if ($('#del')) $('#del').onclick = () => askConfirm('¿Eliminar a esta persona y todas sus vacaciones e incidencias?', () => { S.team = S.team.filter(x => x.id !== e.id); S.vac = S.vac.filter(x => x.empId !== e.id); S.inc = S.inc.filter(x => x.empId !== e.id); save(); $('#dlg').close(); render(); });
+  if ($('#del')) $('#del').onclick = () => askConfirm('¿Eliminar a esta persona y todas sus vacaciones e incidencias?', () => { (e.docs || []).forEach(x => fdel(x.id)); S.team = S.team.filter(x => x.id !== e.id); S.vac = S.vac.filter(x => x.empId !== e.id); S.inc = S.inc.filter(x => x.empId !== e.id); save(); $('#dlg').close(); render(); });
   f.onsubmit = () => { const n = {...e, name: f.elements.name.value.trim(), area: f.elements.area.value.trim(), alta: f.elements.alta.value, prev: num(f.elements.prev.value)}; S.team = isNew ? [...S.team, n] : S.team.map(x => x.id === e.id ? n : x); save(); render(); toast('Persona guardada ✓'); };
-  d.showModal();
+  if (!d.open) d.showModal();
+}
+/* ---------- Ficha del colaborador: vacaciones por año + expediente ---------- */
+const DOC_TIPOS = ['INE o identificación oficial', 'CURP', 'RFC / Constancia de situación fiscal', 'NSS / alta en el IMSS', 'Acta de nacimiento', 'Comprobante de domicilio', 'Contrato laboral', 'Estado de cuenta (CLABE) para nómina', 'Comprobante de estudios', 'CV / carta de recomendación'];
+const DOC_MAX = 5 * 1024 * 1024;
+const fmtKB = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+function fichaDialog(id) {
+  const e = S.team.find(x => x.id === id); if (!e) return;
+  const d = $('#dlg'), b = vacBalance(e), docs = e.docs || [];
+  const cuenta = v => b.years < 1 || v.from >= b.last || v.cuenta;
+  const vacs = S.vac.filter(v => v.empId === e.id).sort((a, c) => c.from.localeCompare(a.from));
+  const incs = S.inc.filter(i => i.empId === e.id).sort((a, c) => c.from.localeCompare(a.from));
+  const years = [...new Set([today().slice(0, 4), ...vacs.map(v => v.from.slice(0, 4))])].sort().reverse();
+  const rango = x => fmtDate(x.from) + (x.to && x.to !== x.from ? ' – ' + fmtDate(x.to) : '');
+  const vacYear = y => { const l = vacs.filter(v => v.from.slice(0, 4) === y), tot = l.reduce((s, v) => s + v.days, 0);
+    return `<div style="margin:12px 0 4px;display:flex;justify-content:space-between;font-weight:600"><span>${y}</span><span class="mut" style="font-weight:400">${l.length ? tot + (tot === 1 ? ' día' : ' días') : 'sin vacaciones registradas'}</span></div>` +
+      l.map(v => `<div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--bd);font-size:13px"><span style="min-width:150px">${rango(v)}</span><span style="min-width:48px">${v.days} d</span><span style="flex:1" class="mut">${esc(v.notes || '')}</span>${cuenta(v) ? '<span class="tag c">descuenta este año</span>' : '<span class="tag" title="Antes de su último aniversario: pertenece al año de servicio anterior">año anterior</span>'}<a href="#" data-a="vac-edit" data-id="${v.id}">editar</a></div>`).join(''); };
+  const incRow = i => `<div style="display:flex;gap:10px;padding:6px 0;border-top:1px solid var(--bd);font-size:13px"><span style="min-width:150px">${rango(i)}</span><span style="min-width:48px">${i.days} d</span><span style="flex:1">${esc(INC[i.type]?.l || i.type)}${i.notes ? '<span class="mut"> · ' + esc(i.notes) + '</span>' : ''}</span><a href="#" data-a="inc-edit" data-id="${i.id}">editar</a></div>`;
+  const fileRow = x => `<div style="display:flex;gap:10px;align-items:baseline;padding:4px 0;font-size:13px"><a href="#" data-a="doc-open" data-id="${x.id}" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.name)}</a><span class="mut" style="font-size:12px">${fmtDate(x.at)} · ${fmtKB(x.size || 0)}</span><a href="#" data-a="doc-del" data-id="${x.id}" data-emp="${e.id}" class="bad">quitar</a></div>`;
+  const upBtn = k => `<label class="g" style="cursor:pointer;display:inline-block;padding:4px 10px;border:1px solid var(--bd);border-radius:8px;font-size:12px;white-space:nowrap">Subir<input type="file" hidden multiple accept=".pdf,.jpg,.jpeg,.png,.heic,.xml,.doc,.docx" data-kind="${esc(k)}"></label>`;
+  const tiposOk = DOC_TIPOS.filter(t => docs.some(x => x.kind === t)).length, otros = docs.filter(x => !DOC_TIPOS.includes(x.kind));
+  d.style.width = 'min(780px,95vw)'; d.style.maxHeight = '92vh'; d.style.overflow = 'auto';
+  d.dataset.ficha = id; d.addEventListener('close', () => { d.style.width = ''; d.style.maxHeight = ''; d.style.overflow = ''; delete d.dataset.ficha; }, {once: true});
+  d.innerHTML = `<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div><h2 style="margin:0">${esc(e.name)}</h2><div class="mut" style="margin-top:2px">${esc(e.area || 'Sin puesto')} · alta ${fmtDate(e.alta)} · ${b.years >= 1 ? b.years + (b.years === 1 ? ' año' : ' años') : b.months + ' meses'} de antigüedad</div></div><button type="button" class="g" id="fx">Cerrar</button></div>
+    <div class="grid" style="margin:16px 0 0;grid-template-columns:repeat(4,1fr)">
+      <div class="card kpi" style="padding:12px"><div class="l">Corresponden</div><div class="v" style="font-size:20px">${b.entitled}</div></div>
+      <div class="card kpi" style="padding:12px"><div class="l">Ajuste</div><div class="v" style="font-size:20px">${b.prev || '—'}</div></div>
+      <div class="card kpi" style="padding:12px"><div class="l">Tomados este año</div><div class="v" style="font-size:20px">${b.taken}</div></div>
+      <div class="card kpi" style="padding:12px"><div class="l">Disponibles</div><div class="v" style="font-size:20px">${b.avail}</div></div></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:22px"><h3 style="margin:0">Historial de vacaciones</h3><button type="button" class="b" data-a="vac-new" data-id="${e.id}">+ Registrar vacaciones</button></div>
+    ${years.map(vacYear).join('')}
+    ${incs.length ? `<h3 style="margin:24px 0 4px">Incidencias</h3>${incs.map(incRow).join('')}` : ''}
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:26px"><h3 style="margin:0">Expediente</h3><span class="mut">${tiposOk} de ${DOC_TIPOS.length} documentos básicos</span></div>
+    <p class="mut" style="margin:4px 0 8px;font-size:12px">PDF, imagen o XML, de hasta 5 MB cada uno. Quedan guardados en tu base de datos, solo visibles para ti.</p>
+    ${DOC_TIPOS.map(t => { const l = docs.filter(x => x.kind === t); return `<div style="border-top:1px solid var(--bd);padding:8px 0"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span>${l.length ? '<span class="ok">✓</span>' : '<span class="mut">○</span>'} ${esc(t)}</span>${upBtn(t)}</div>${l.map(fileRow).join('')}</div>`; }).join('')}
+    <div style="border-top:1px solid var(--bd);padding:8px 0"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span>Otros documentos</span>${upBtn('Otro')}</div>${otros.map(fileRow).join('')}</div>
+    <div class="bar" style="margin:18px 0 0"><button type="button" class="g" data-a="emp-edit" data-id="${e.id}">Editar datos</button></div>`;
+  $('#fx').onclick = () => d.close();
+  d.querySelectorAll('input[data-kind]').forEach(inp => inp.onchange = async () => {
+    const cur = S.team.find(x => x.id === id); let n = 0;
+    for (const f of [...inp.files]) {
+      if (f.size > DOC_MAX) { toast('"' + f.name + '" pesa más de 5 MB.', true); continue; }
+      const fid = uid(); try { await fput(fid, f); } catch { toast('No se pudo guardar "' + f.name + '".', true); continue; }
+      (cur.docs ||= []).push({id: fid, name: f.name, type: f.type, kind: inp.dataset.kind, at: today(), size: f.size}); n++;
+    }
+    if (n) { save(); toast(n === 1 ? 'Documento guardado ✓' : n + ' documentos guardados ✓'); }
+    fichaDialog(id);
+  });
+  if (!d.open) if (!d.open) d.showModal();
 }
 function rangeDialog(kind, rec, empId) {
   const isVac = kind === 'vac', list = isVac ? 'vac' : 'inc', isNew = !rec;
   rec = rec || {id: uid(), empId: empId || S.team[0]?.id, type: 'falta', from: today(), to: today(), days: businessDays(today()), notes: ''};
-  const d = $('#dlg');
+  const d = $('#dlg'); const back = d.dataset.ficha; if (back) d.addEventListener('close', () => { if (S.team.some(x => x.id === back)) fichaDialog(back); }, {once: true});
   d.innerHTML = `<form method="dialog" id="f"><h2 style="margin-top:0">${isVac ? (isNew ? 'Registrar vacaciones' : 'Editar vacaciones') : (isNew ? 'Registrar incidencia' : 'Editar incidencia')}</h2>
     <label>Persona<select name="empId">${S.team.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></label>
     ${isVac ? '' : `<label>Tipo<select name="type">${Object.entries(INC).map(([k, v]) => `<option value="${k}">${v.l}</option>`).join('')}</select></label>`}
@@ -864,7 +912,7 @@ function rangeDialog(kind, rec, empId) {
     if (el.type) n.type = el.type.value; if (isVac) { delete n.type; n.cuenta = el.cuenta.checked; }
     S[list] = isNew ? [...S[list], n] : S[list].map(x => x.id === rec.id ? n : x); save(); render(); toast('Guardado ✓');
   };
-  d.showModal();
+  if (!d.open) d.showModal();
 }
 
 /* ---------- Clientes y cobranza ---------- */
@@ -945,7 +993,7 @@ function clienteDialog(c) {
   $('#cancel').onclick = () => d.close();
   if ($('#del')) $('#del').onclick = () => askConfirm('¿Eliminar este cliente? Sus depósitos quedarán sin cliente.', () => { S.clientes = S.clientes.filter(x => x.id !== c.id); S.tx.forEach(t => { if (t.clienteId === c.id) delete t.clienteId; }); save(); $('#dlg').close(); render(); });
   $('#f').onsubmit = () => { const n = {...c, nombre: f.nombre.value.trim(), marca: f.marca.value.trim(), fee: num(f.fee.value), iva: f.iva.checked, desde: f.desde.value, saldoIni: num(f.saldoIni.value), alias: f.alias.value.split('\n').map(x => x.trim()).filter(Boolean)}; S.clientes = isNew ? [...S.clientes, n] : S.clientes.map(x => x.id === c.id ? n : x); save(); render(); toast('Cliente guardado ✓'); };
-  d.showModal();
+  if (!d.open) d.showModal();
 }
 function asignarCobro(id) {
   const t = S.tx.find(x => x.id === id), sel = $('#as-' + id); if (!t || !sel || !sel.value) return toast('Elige un cliente.', true);
@@ -1009,7 +1057,7 @@ function cxpDialog(x, nuevo) {
   $('#cancel').onclick = () => d.close();
   if ($('#del')) $('#del').onclick = () => askConfirm('¿Eliminar esta cuenta por pagar?', () => { S.cxp = S.cxp.filter(y => y.id !== x.id); save(); $('#dlg').close(); render(); });
   $('#f').onsubmit = ev => { const m = num(f.monto.value); if (!(m > 0)) { ev.preventDefault(); return toast('Captura el monto.', true); } const n = {...x, proveedor: f.proveedor.value.trim(), concepto: f.concepto.value.trim(), monto: m, fecha: f.fecha.value, vence: f.vence.value}; S.cxp = isNew ? [...S.cxp, n] : S.cxp.map(y => y.id === x.id ? n : y); save(); render(); toast('Guardado ✓'); };
-  d.showModal();
+  if (!d.open) d.showModal();
 }
 function fijoDialog(f) {
   const isNew = !f; f = f || {id: uid(), concepto: '', monto: 0, dia: 15, meses: 'todos'}; const d = $('#dlg');
@@ -1020,7 +1068,7 @@ function fijoDialog(f) {
   const e = $('#f').elements; e.concepto.value = f.concepto; e.monto.value = f.monto || ''; e.dia.value = f.dia || ''; e.meses.value = f.meses || 'todos'; $('#cancel').onclick = () => d.close();
   if ($('#del')) $('#del').onclick = () => { S.fijos = S.fijos.filter(y => y.id !== f.id); save(); d.close(); render(); };
   $('#f').onsubmit = () => { const n = {...f, concepto: e.concepto.value.trim(), monto: num(e.monto.value), dia: +e.dia.value || 0, meses: e.meses.value}; S.fijos = isNew ? [...S.fijos, n] : S.fijos.map(y => y.id === f.id ? n : y); save(); render(); toast('Guardado ✓'); };
-  d.showModal();
+  if (!d.open) d.showModal();
 }
 
 /* ---------- Balanza del mes y del año ---------- */
@@ -1182,7 +1230,7 @@ function checkDialog(a) {
   $('#cancel').onclick = () => d.close();
   if ($('#del')) $('#del').onclick = () => { delete a.check; save(); d.close(); render(); toast('Saldo confirmado quitado'); };
   $('#f').onsubmit = ev => { const v = num(f.saldo.value); if (f.saldo.value.trim() === '' || isNaN(v)) { ev.preventDefault(); return toast('Captura el saldo.', true); } a.check = {fecha: f.fecha.value, saldo: Math.round(v * 100) / 100}; save(); render(); toast('Saldo confirmado guardado ✓'); };
-  d.showModal();
+  if (!d.open) d.showModal();
 }
 function accDialog(a) {
   const isNew = !a; a = a || {id: uid(), name: '', bank: '', kind: 'banco', initial: 0};
@@ -1202,7 +1250,7 @@ function accDialog(a) {
     const f = $('#f').elements, n = {...a, name: f.name.value, kind: f.kind.value, bank: a.bank || f.name.value, initial: num(f.initial.value)};
     S.accounts = isNew ? [...S.accounts, n] : S.accounts.map(x => x.id === a.id ? n : x); save(); render(); toast('Cuenta guardada ✓');
   };
-  d.showModal();
+  if (!d.open) d.showModal();
 }
 
 /* ---------- Categorías ---------- */
@@ -1451,6 +1499,9 @@ const actions = {
   edit: id => txDialog(S.tx.find(t => t.id === id)),
   'emp-new': () => empDialog(),
   'emp-edit': id => empDialog(S.team.find(e => e.id === id)),
+  'emp-ficha': id => fichaDialog(id),
+  'doc-open': id => openFile(id),
+  'doc-del': (id, el) => askConfirm('¿Quitar este documento del expediente?', () => { const emp = S.team.find(x => x.id === el.dataset.emp); if (!emp) return; emp.docs = (emp.docs || []).filter(x => x.id !== id); fdel(id); save(); fichaDialog(emp.id); toast('Documento quitado'); }),
   'vac-new': id => S.team.length ? rangeDialog('vac', null, id) : toast('Primero agrega a una persona.', true),
   'vac-edit': id => rangeDialog('vac', S.vac.find(v => v.id === id)),
   'inc-new': () => S.team.length ? rangeDialog('inc', null) : toast('Primero agrega a una persona.', true),
@@ -1549,10 +1600,25 @@ onAuthStateChanged(auth, user => {
   started = true; box.remove();
   const uid = user.uid, ref = p => doc(fs, 'users', uid, ...p.split('/'));
   const toB64 = b => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = rej; r.readAsDataURL(b); });
+  const CH = 700000; // caracteres por fragmento: cada documento de Firestore admite ~1 MB
   window.__fbFiles = {
-    async put(id, blob) { if (blob.size > 700000) throw new Error('grande'); await setDoc(ref('files/' + id), {data: await toB64(blob), type: blob.type || ''}); },
-    async get(id) { const s = await getDoc(ref('files/' + id)); return s.exists() ? await (await fetch(s.data().data)).blob() : null; },
-    async del(id) { await deleteDoc(ref('files/' + id)); }
+    async put(id, blob) {
+      if (blob.size > 6 * 1048576) throw new Error('grande');
+      const b64 = await toB64(blob), n = Math.ceil(b64.length / CH);
+      for (let i = 0; i < n; i++) await setDoc(ref('files/' + id + '_' + i), {data: b64.slice(i * CH, (i + 1) * CH)});
+      await setDoc(ref('files/' + id), {n, type: blob.type || '', size: blob.size});
+    },
+    async get(id) {
+      const m = await getDoc(ref('files/' + id)); if (!m.exists()) return null;
+      const md = m.data(); if (md.data) return await (await fetch(md.data)).blob(); // formato anterior (un solo documento)
+      let b64 = ''; for (let i = 0; i < md.n; i++) { const c = await getDoc(ref('files/' + id + '_' + i)); b64 += c.exists() ? c.data().data : ''; }
+      return await (await fetch(b64)).blob();
+    },
+    async del(id) {
+      const m = await getDoc(ref('files/' + id)); const n = m.exists() ? (m.data().n || 0) : 0;
+      for (let i = 0; i < n; i++) await deleteDoc(ref('files/' + id + '_' + i));
+      await deleteDoc(ref('files/' + id));
+    }
   };
   const out = document.createElement('button'); out.textContent = 'Salir'; out.style.cssText = 'position:fixed;right:14px;top:10px;z-index:9;font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid #555;background:#000;color:#ddd;cursor:pointer'; out.onclick = () => signOut(auth).then(() => location.reload()); document.body.appendChild(out);
   window.__fbResolve({
