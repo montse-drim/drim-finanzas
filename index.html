@@ -49,6 +49,10 @@ td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .tbl{overflow-x:auto}
 .av{width:30px;height:30px;border-radius:50%;background:var(--field) center/cover no-repeat;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--mut);vertical-align:middle;margin-right:10px;flex:none;overflow:hidden}
 .av.lg{width:76px;height:76px;font-size:24px;margin-right:0}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;flex:none;background:#c62828}.dot.p{background:#e0a100}.dot.i{background:var(--mut)}
+details.rh{border-top:1px solid var(--bd)}details.rh>summary{cursor:pointer;padding:8px 0;font-size:13px;list-style:none;display:flex;align-items:center}details.rh>summary::-webkit-details-marker{display:none}
+summary.rhs{cursor:pointer;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);padding:8px 0}
+#rhPanel{position:fixed;top:0;right:0;bottom:0;width:min(330px,92vw);background:var(--card);border-left:1px solid var(--bd);box-shadow:-8px 0 24px #0003;padding:18px 18px 24px;overflow:auto;z-index:60}
 .tag{display:inline-block;padding:1px 9px;border-radius:99px;font-size:11px;border:1px solid var(--bd);color:var(--mut);margin-right:4px;white-space:nowrap}
 .tag.p{color:var(--warn);border-color:var(--warn)}.tag.c{color:var(--ok);border-color:var(--ok)}.tag.r{color:var(--bad);border-color:var(--bad)}
 .alert{border-left:3px solid var(--acc)}.alert.r{border-left-color:var(--bad)}.alert.g{border-left-color:var(--ok)}
@@ -347,7 +351,7 @@ function render() {
   $('#nav').innerHTML = GROUPS.map(g => `<button class="${g === grp ? 'on' : ''}" data-v="${LASTV[g[0]] || g[1][0]}">${g[0]}${gb(g)}</button>`).join('');
   $('#sub').innerHTML = grp[1].length > 1 ? grp[1].map(k => `<button class="${view === k ? 'on' : ''}" data-v="${k}">${VLABEL[k]}${bd(k)}</button>`).join('') : '';
   $('#app').innerHTML = (STORAGE_OK ? '' : '<div class="banner">⚠️ Este visor no permite guardar datos. Lo que captures aquí se pierde al cerrar. Abre <b>finanzas.html</b> con doble clic en Chrome o Safari.</div>') + ({resumen: vResumen, movs: vMovs, efectivo: vEfectivo, iva: vIVA, balanza: vBalanza, clientes: vClientes, pagar: vPagar, vacaciones: vVac, incidencias: vInc, facturas: vFacturas, datos: vDatos, cuentas: vCuentas, cats: vCats, respaldo: vRespaldo})[view]();
-  bindDrops(); hydrateFotos();
+  bindDrops(); hydrateFotos(); if (RH_OPEN) rhRender();
 }
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-v]'); if (t) { view = t.dataset.v; render(); scrollTo(0, 0); }
@@ -824,14 +828,33 @@ function auditoriaRH() {
   const ord = {r: 0, p: 1, i: 2};
   return A.sort((a, b) => ord[a.sev] - ord[b.sev]);
 }
+// Cada alerta es una línea (punto de color + título); al tocarla se despliega la explicación
+const rhItem = (a, btn) => `<details class="rh"><summary><span class="dot ${a.sev}"></span>${esc(a.titulo)}</summary><div class="mut" style="font-size:12.5px;margin:4px 0 8px 16px">${esc(a.detalle)}${btn && a.emp ? ` <a href="#" data-a="emp-ficha" data-id="${a.emp}">Ver ficha</a>` : ''}</div></details>`;
+const rhConteo = list => ({r: list.filter(a => a.sev === 'r').length, p: list.filter(a => a.sev === 'p').length, i: list.filter(a => a.sev === 'i').length});
+// botón pequeño para la barra de Vacaciones
+function rhBoton() {
+  const c = rhConteo(auditoriaRH()), n = c.r + c.p;
+  return `<button class="g" data-a="rh-toggle" title="Alertas y recomendaciones de RH"><span class="dot ${c.r ? 'r' : c.p ? 'p' : 'i'}"></span>Auditor de RH${n ? ' · ' + n : ''}</button>`;
+}
+// en la ficha: una sola línea que se despliega
 function auditCard(list, titulo) {
   if (!list.length) return '';
-  const c = s => list.filter(a => a.sev === s).length, row = a => `<div style="display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-top:1px solid var(--bd)"><span class="tag ${a.sev === 'r' ? 'r' : a.sev === 'p' ? 'p' : ''}" style="flex:none;margin-top:2px">${SEV_L[a.sev]}</span><div style="flex:1"><div style="font-weight:600">${esc(a.titulo)}</div><div class="mut" style="font-size:13px;margin-top:2px">${esc(a.detalle)}</div></div>${a.emp && titulo !== 'ficha' ? `<button class="g" data-a="emp-ficha" data-id="${a.emp}">Ver ficha</button>` : ''}</div>`;
-  const act = list.filter(a => a.sev !== 'i'), rec = list.filter(a => a.sev === 'i');
-  return `<div class="card"><h2 style="margin-bottom:4px">${titulo === 'ficha' ? 'Alertas de esta persona' : 'Auditor de RH'}</h2><div class="mut" style="font-size:13px">${c('r') ? '<b class="bad">' + c('r') + (c('r') === 1 ? ' urgente' : ' urgentes') + '</b> · ' : ''}${c('p') ? c('p') + ' por atender · ' : ''}${c('i')} ${c('i') === 1 ? 'recomendación' : 'recomendaciones'}</div>
-    ${act.map(row).join('')}${rec.length ? `<details style="margin-top:6px"><summary style="cursor:pointer;padding:10px 0;color:var(--link)">Ver ${rec.length} ${rec.length === 1 ? 'recomendación' : 'recomendaciones'}</summary>${rec.map(row).join('')}</details>` : ''}
-    <p class="mut" style="margin:12px 0 0;font-size:11px">Orientación general basada en la Ley Federal del Trabajo, calculada con los datos de esta app. Confírmala con tu contador o abogado antes de tomar decisiones laborales.</p></div>`;
+  const c = rhConteo(list), n = list.length;
+  return `<details style="margin-top:12px;border:1px solid var(--bd);border-radius:10px;padding:0 14px"><summary style="cursor:pointer;padding:10px 0;list-style:none;display:flex;gap:8px;align-items:center;font-size:13px"><span class="dot ${c.r ? 'r' : c.p ? 'p' : 'i'}"></span><b>${n} ${n === 1 ? 'alerta' : 'alertas'} de RH</b><span class="mut">${c.r ? c.r + ' urgente' + (c.r === 1 ? '' : 's') : ''}</span><span class="mut" style="margin-left:auto">▾</span></summary>${list.map(a => rhItem(a, false)).join('')}</details>`;
 }
+// panel lateral, discreto: se abre desde el botón y no tapa la pantalla completa
+let RH_OPEN = false;
+function rhRender() {
+  let p = document.getElementById('rhPanel');
+  if (!RH_OPEN) { p && p.remove(); return; }
+  if (!p) { p = document.createElement('aside'); p.id = 'rhPanel'; document.body.appendChild(p); }
+  const list = auditoriaRH(), c = rhConteo(list), sec = (t, k, abierto) => { const l = list.filter(a => a.sev === k); return l.length ? `<details ${abierto ? 'open' : ''} style="margin-top:6px"><summary class="rhs">${t} <span class="mut">(${l.length})</span></summary>${l.map(a => rhItem(a, true)).join('')}</details>` : ''; };
+  p.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><b>Auditor de RH</b><button class="g" data-a="rh-toggle" aria-label="Cerrar" style="padding:2px 9px">✕</button></div>
+    <div class="mut" style="font-size:12px;margin:2px 0 8px">${list.length ? c.r + ' urgentes · ' + c.p + ' por atender · ' + c.i + ' recomendaciones' : 'Sin alertas por ahora ✓'}</div>
+    ${sec('Urgentes', 'r', true)}${sec('Por atender', 'p', true)}${sec('Recomendaciones', 'i', false)}
+    <p class="mut" style="margin:14px 0 0;font-size:11px">Orientación general basada en la LFT con los datos de esta app. Confírmala con tu contador o abogado antes de decidir.</p>`;
+}
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && RH_OPEN) { RH_OPEN = false; rhRender(); } });
 const SEV_L = {r: 'Urgente', p: 'Por atender', i: 'Recomendación'};
 function vVac() {
   if (!S.team.length) return noTeam();
@@ -844,8 +867,7 @@ function vVac() {
   const past = S.vac.filter(v => (v.to || v.from) < today()).sort((a, b) => b.from.localeCompare(a.from)).slice(0, 60);
   const vrow = v => `<tr><td>${esc(empName(v.empId))}</td><td>${fmtDate(v.from)}${v.to && v.to !== v.from ? ' – ' + fmtDate(v.to) : ''}</td><td class="n">${v.days}</td><td class="mut">${esc(v.notes || '')}</td><td class="n"><button class="g" data-a="vac-edit" data-id="${v.id}">Editar</button></td></tr>`;
   return `
-  <div class="bar"><button class="b" data-a="vac-new">+ Registrar vacaciones</button><button class="g" data-a="emp-new">+ Agregar persona</button></div>
-  ${auditCard(auditoriaRH(), '')}
+  <div class="bar"><button class="b" data-a="vac-new">+ Registrar vacaciones</button><button class="g" data-a="emp-new">+ Agregar persona</button><span style="flex:1"></span>${rhBoton()}</div>
   <div class="card"><h2>Saldo de vacaciones por persona</h2><div class="tbl"><table>
     <thead><tr><th>Persona</th><th>Alta</th><th>Antigüedad</th><th class="n">Corresponden</th><th class="n">Ajuste</th><th class="n">Tomados este año</th><th class="n">Disponibles</th><th>Estado</th><th></th></tr></thead><tbody>
     ${rows.map(r => `<tr><td style="min-width:200px"><div style="display:flex;align-items:center">${avatar(r.e)}<div><a href="#" data-a="emp-ficha" data-id="${r.e.id}" style="color:inherit;font-weight:600;text-decoration:none">${esc(r.e.name)}</a><div class="mut" style="font-size:12px">${esc(r.e.area || '')} · <a href="#" data-a="emp-ficha" data-id="${r.e.id}">ver ficha</a> · <a href="#" data-a="emp-edit" data-id="${r.e.id}">editar</a></div></div></div></td><td style="white-space:nowrap">${fmtDate(r.e.alta)}</td>
@@ -1602,6 +1624,7 @@ const actions = {
   edit: id => txDialog(S.tx.find(t => t.id === id)),
   'emp-new': () => empDialog(),
   'emp-edit': id => empDialog(S.team.find(e => e.id === id)),
+  'rh-toggle': () => { RH_OPEN = !RH_OPEN; rhRender(); },
   'emp-ficha': id => fichaDialog(id),
   'foto-del': id => { const e = S.team.find(x => x.id === id); if (e && e.photo) { fdel(e.photo.id); delete e.photo; save(); render(); fichaDialog(id); toast('Foto quitada'); } },
   'doc-open': id => openFile(id),
