@@ -416,7 +416,8 @@ function vResumen() {
   if (!S.tx.length) al.push(`<div class="todo"><div><b>Empieza cargando tus estados de cuenta</b> de enero a la fecha (Bajío, BBVA y Clara).</div><button class="g" data-v="datos">Cargar estados de cuenta</button></div>`);
 
   // lo que afecta tu dinero hoy va primero; los pendientes de papeleo, al final
-  const pr = h => /clientes? retrasados?|cliente retrasado/.test(h) ? 1 : /de IVA/.test(h) ? 2 : /el banco muestra/.test(h) ? 3 : /Faltan estados/.test(h) ? 4 : /vacaciones por programar/.test(h) ? 5 : /Faltan facturas/.test(h) ? 6 : 7;
+  { const u = auditoriaRH().filter(a => a.sev === 'r'); if (u.length) al.push(`<div class="todo"><div><b>Auditor de RH: ${u.length} ${u.length === 1 ? 'alerta urgente' : 'alertas urgentes'}</b> — ${esc(u.slice(0, 2).map(a => a.titulo).join('; '))}${u.length > 2 ? ' y más' : ''}.</div><button class="g" data-v="vacaciones">Ver auditor</button></div>`); }
+  const pr = h => /clientes? retrasados?|cliente retrasado/.test(h) ? 1 : /de IVA/.test(h) ? 2 : /el banco muestra/.test(h) ? 3 : /Faltan estados/.test(h) ? 4 : /vacaciones por programar|Auditor de RH/.test(h) ? 5 : /Faltan facturas/.test(h) ? 6 : 7;
   al.sort((x, y) => pr(x) - pr(y));
   const top = al.slice(0, 5), more = al.slice(5), hoy = new Date().toLocaleDateString('es-MX', {day: 'numeric', month: 'long', year: 'numeric'});
   return `<h1 class="pg">Resumen del negocio</h1><p class="sub" style="color:var(--mut);margin:0 0 22px">Al ${hoy}</p>
@@ -766,6 +767,72 @@ function vacProgramadas() {
   vig.forEach(x => { x.curso = x.from <= hoy; x.regresa = nextWorkday(x.to, x.semana); x.coincide = vig.filter(y => y !== x && y.empId !== x.empId && y.from <= x.to && y.to >= x.from); });
   return vig;
 }
+/* ---------- Auditor de RH: alertas y recomendaciones (orientación general con base en la LFT) ---------- */
+const MESES_L = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+function cumple(nac) {
+  if (!nac) return null;
+  const n = dparse(nac), h = dparse(today()); let edad = h.getFullYear() - n.getFullYear();
+  const fecha = y => { const d = new Date(y, n.getMonth(), n.getDate(), 12); if (d.getMonth() !== n.getMonth()) d.setDate(0); return d; }; // 29 feb en año no bisiesto → 28 feb
+  let prox = fecha(h.getFullYear()); if (prox < dparse(today())) { prox = fecha(h.getFullYear() + 1); }
+  if (fecha(h.getFullYear()) > h) edad--;
+  const dias = Math.round((prox - h) / 864e5);
+  return {edad, dias, texto: n.getDate() + ' de ' + MESES_L[n.getMonth()], cumplira: edad + 1};
+}
+function auditoriaRH() {
+  const A = [], hoy = today(), dias = n => n + (n === 1 ? ' día' : ' días');
+  const desde = n => { const d = dparse(hoy); d.setDate(d.getDate() + n); return dfmt(d); };
+  const nom = e => e.name.trim().split(/\s+/)[0], daily = e => +e.sueldo > 0 ? +e.sueldo / 30 : 0;
+  const add = (sev, e, titulo, detalle) => A.push({sev, emp: e && e.id, titulo, detalle});
+  const prog = vacProgramadas(), mes = +hoy.slice(5, 7), dia = +hoy.slice(8, 10);
+  for (const e of S.team) {
+    const b = vacBalance(e), n = nom(e), sd = daily(e);
+    // 1) vacaciones sin tomar
+    if (vacTracking() && b.years >= 1 && b.avail > 0) {
+      const lim = dparse(b.last); lim.setMonth(lim.getMonth() + 6);
+      const exp = sd ? ' El pasivo estimado sería de ' + money0(b.avail * sd * 1.25) + ' (los días más la prima vacacional del 25%).' : '';
+      if (b.monthsSince >= 6) add('r', e, n + ' tiene ' + dias(b.avail) + ' de vacaciones vencidas', 'Pasaron más de 6 meses desde su aniversario (' + fmtDate(b.last) + ') y la ley (art. 81) obliga a otorgarlas en ese plazo. No se pueden cambiar por dinero mientras trabaja (art. 79): si no las toma, se acumulan y, al terminar la relación laboral, se pagan junto con la prima vacacional.' + exp + ' Programa fechas esta semana.');
+      else if (b.monthsSince >= 4) add('p', e, 'Programa las vacaciones de ' + n + ' (' + dias(b.avail) + ')', 'Su plazo legal vence el ' + fmtDate(dfmt(lim)) + ' (6 meses después de su aniversario del ' + fmtDate(b.last) + '). Si pasa ese plazo sin tomarlas, quedan como vacaciones vencidas.' + exp);
+    }
+    if (b.avail < 0) add('p', e, n + ' tiene ' + dias(-b.avail) + ' de vacaciones registrados de más', 'Se registraron más días de los que le corresponden en este año de servicio. Revisa si falta un ajuste o si alguno pertenece a otro año.');
+    // 2) fraccionamiento (art. 78: al menos 6 días continuos)
+    const mine = S.vac.filter(v => v.empId === e.id && (b.years < 1 || v.from >= b.last || v.cuenta));
+    if (mine.length && mine.every(v => v.days < 6)) add('i', e, 'Las vacaciones de ' + n + ' están fraccionadas', 'La ley (art. 78) pide que al menos 6 días del periodo sean continuos. Todas las que lleva este año son de menos de 6 días.');
+    // 3) próxima salida: prima vacacional
+    prog.filter(x => x.empId === e.id && x.from <= desde(14) && x.from >= hoy).forEach(x => add('i', e, 'Prima vacacional de ' + n + ' por pagar', 'Sale de vacaciones el ' + fmtDate(x.from) + ' (' + dias(x.days) + '). La ley (art. 80) pide pagar una prima de al menos 25% sobre esos días' + (sd ? ': ≈ ' + money0(x.days * sd * 0.25) : '.')));
+    // 4) aniversario próximo
+    if (b.next <= desde(30) && b.next >= hoy) add('i', e, n + ' cumple ' + (b.years + 1) + (b.years + 1 === 1 ? ' año' : ' años') + ' el ' + fmtDate(b.next), 'Sus vacaciones pasan de ' + (b.years < 1 ? 'proporcionales' : dias(vacDays(b.years))) + ' a ' + dias(vacDays(b.years + 1)) + ' y empieza un nuevo plazo de 6 meses para otorgarlas.');
+    // cumpleaños próximos
+    const cu = cumple(e.nac); if (cu && cu.dias <= 7) add('i', e, cu.dias === 0 ? '¡Hoy es cumpleaños de ' + n + '!' : 'Cumpleaños de ' + n + ' ' + (cu.dias === 1 ? 'mañana' : 'en ' + cu.dias + ' días'), 'Cumple ' + cu.cumplira + ' años el ' + cu.texto + '.');
+    // 5) faltas y retardos de los últimos 30 días
+    const f30 = S.inc.filter(i => i.empId === e.id && i.type === 'falta' && i.from >= desde(-30) && i.from <= hoy).length;
+    const r30 = S.inc.filter(i => i.empId === e.id && i.type === 'retardo' && i.from >= desde(-30) && i.from <= hoy).length;
+    if (f30 >= 4) add('r', e, n + ' tiene ' + f30 + ' faltas injustificadas en 30 días', 'Más de 3 faltas en 30 días sin permiso ni causa justificada es causal de rescisión sin responsabilidad para el patrón (art. 47, fracc. X). Documenta cada falta y consulta a tu abogado antes de actuar.');
+    else if (f30 === 3) add('p', e, n + ' lleva 3 faltas injustificadas en 30 días', 'Con una más se configura la causal de rescisión del art. 47, fracc. X. Conviene hablar con la persona y dejar constancia por escrito.');
+    if (r30 >= 4) add('p', e, n + ' acumula ' + r30 + ' retardos en 30 días', 'Revisa si hay un patrón (horario, traslado, grabaciones fuera de oficina) y define cómo se registran para que sean justos.');
+  }
+  // 6) expedientes
+  const sinContrato = S.team.filter(e => !(e.docs || []).some(x => x.kind === 'Contrato laboral'));
+  if (S.team.length && sinContrato.length) add('p', null, sinContrato.length + (sinContrato.length === 1 ? ' persona sin contrato laboral' : ' personas sin contrato laboral') + ' en el expediente', 'La relación de trabajo debe constar por escrito (arts. 24 y 25). Sube el contrato firmado en la ficha de: ' + sinContrato.map(e => nom(e)).join(', ') + '.');
+  const incompletos = S.team.filter(e => DOC_TIPOS.some(t => !(e.docs || []).some(x => x.kind === t))).length;
+  if (S.team.length && incompletos) add('i', null, incompletos + ' de ' + S.team.length + ' expedientes están incompletos', 'Cada ficha tiene una lista de 10 documentos básicos (INE, CURP, RFC, NSS, acta, domicilio, contrato, CLABE, estudios y CV). Un expediente completo agiliza altas, finiquitos y revisiones del IMSS.');
+  // 7) fechas del año
+  if (mes === 11 || (mes === 12 && dia <= 20)) {
+    const y = +hoy.slice(0, 4), conSueldo = S.team.filter(e => daily(e)), tot = conSueldo.reduce((s, e) => { const ini = dparse(e.alta) > dparse(y + '-01-01') ? dparse(e.alta) : dparse(y + '-01-01'); const d = Math.min(365, Math.max(0, Math.round((dparse(y + '-12-31') - ini) / 864e5) + 1)); return s + daily(e) * 15 * d / 365; }, 0);
+    add(mes === 12 ? 'r' : 'p', null, 'Aguinaldo: pagar a más tardar el 20 de diciembre', 'Corresponden mínimo 15 días de salario por año trabajado, proporcional si ingresaron este año (art. 87).' + (conSueldo.length ? ' Estimado con los sueldos capturados (' + conSueldo.length + ' de ' + S.team.length + ' personas): ' + money0(tot) + '.' : ' Captura el sueldo de cada persona (Editar datos) para estimar el monto.'));
+  }
+  if (mes === 4 || mes === 5) add('p', null, 'PTU: fecha límite 30 de mayo', 'Las personas morales reparten utilidades dentro de los 60 días siguientes a la declaración anual. Confirma con tu contador si hubo utilidad y cuánto corresponde.');
+  const ord = {r: 0, p: 1, i: 2};
+  return A.sort((a, b) => ord[a.sev] - ord[b.sev]);
+}
+function auditCard(list, titulo) {
+  if (!list.length) return '';
+  const c = s => list.filter(a => a.sev === s).length, row = a => `<div style="display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-top:1px solid var(--bd)"><span class="tag ${a.sev === 'r' ? 'r' : a.sev === 'p' ? 'p' : ''}" style="flex:none;margin-top:2px">${SEV_L[a.sev]}</span><div style="flex:1"><div style="font-weight:600">${esc(a.titulo)}</div><div class="mut" style="font-size:13px;margin-top:2px">${esc(a.detalle)}</div></div>${a.emp && titulo !== 'ficha' ? `<button class="g" data-a="emp-ficha" data-id="${a.emp}">Ver ficha</button>` : ''}</div>`;
+  const act = list.filter(a => a.sev !== 'i'), rec = list.filter(a => a.sev === 'i');
+  return `<div class="card"><h2 style="margin-bottom:4px">${titulo === 'ficha' ? 'Alertas de esta persona' : 'Auditor de RH'}</h2><div class="mut" style="font-size:13px">${c('r') ? '<b class="bad">' + c('r') + (c('r') === 1 ? ' urgente' : ' urgentes') + '</b> · ' : ''}${c('p') ? c('p') + ' por atender · ' : ''}${c('i')} ${c('i') === 1 ? 'recomendación' : 'recomendaciones'}</div>
+    ${act.map(row).join('')}${rec.length ? `<details style="margin-top:6px"><summary style="cursor:pointer;padding:10px 0;color:var(--link)">Ver ${rec.length} ${rec.length === 1 ? 'recomendación' : 'recomendaciones'}</summary>${rec.map(row).join('')}</details>` : ''}
+    <p class="mut" style="margin:12px 0 0;font-size:11px">Orientación general basada en la Ley Federal del Trabajo, calculada con los datos de esta app. Confírmala con tu contador o abogado antes de tomar decisiones laborales.</p></div>`;
+}
+const SEV_L = {r: 'Urgente', p: 'Por atender', i: 'Recomendación'};
 function vVac() {
   if (!S.team.length) return noTeam();
   const m = F.vacMes || today().slice(0, 7);
@@ -778,6 +845,7 @@ function vVac() {
   const vrow = v => `<tr><td>${esc(empName(v.empId))}</td><td>${fmtDate(v.from)}${v.to && v.to !== v.from ? ' – ' + fmtDate(v.to) : ''}</td><td class="n">${v.days}</td><td class="mut">${esc(v.notes || '')}</td><td class="n"><button class="g" data-a="vac-edit" data-id="${v.id}">Editar</button></td></tr>`;
   return `
   <div class="bar"><button class="b" data-a="vac-new">+ Registrar vacaciones</button><button class="g" data-a="emp-new">+ Agregar persona</button></div>
+  ${auditCard(auditoriaRH(), '')}
   <div class="card"><h2>Saldo de vacaciones por persona</h2><div class="tbl"><table>
     <thead><tr><th>Persona</th><th>Alta</th><th>Antigüedad</th><th class="n">Corresponden</th><th class="n">Ajuste</th><th class="n">Tomados este año</th><th class="n">Disponibles</th><th>Estado</th><th></th></tr></thead><tbody>
     ${rows.map(r => `<tr><td style="min-width:200px"><div style="display:flex;align-items:center">${avatar(r.e)}<div><a href="#" data-a="emp-ficha" data-id="${r.e.id}" style="color:inherit;font-weight:600;text-decoration:none">${esc(r.e.name)}</a><div class="mut" style="font-size:12px">${esc(r.e.area || '')} · <a href="#" data-a="emp-ficha" data-id="${r.e.id}">ver ficha</a> · <a href="#" data-a="emp-edit" data-id="${r.e.id}">editar</a></div></div></div></td><td style="white-space:nowrap">${fmtDate(r.e.alta)}</td>
@@ -846,17 +914,20 @@ function empDialog(e) {
   d.innerHTML = `<form method="dialog" id="f"><h2 style="margin-top:0">${isNew ? 'Agregar persona' : 'Editar persona'}</h2>
     <label>Nombre completo<input name="name" required></label>
     <div class="two"><label>Área o puesto<input name="area"></label><label>Fecha de alta<input type="date" name="alta" required></label></div>
+    <label>Fecha de nacimiento<input type="date" name="nac"></label>
     <label>Ajuste de saldo: días de periodos anteriores sin tomar (+) o ya tomados antes de usar la app (−)<input type="text" inputmode="decimal" name="prev" placeholder="0, ej. -6"></label>
+    <label>Sueldo mensual bruto (opcional: sirve para estimar aguinaldo y el pasivo de vacaciones)<input type="text" inputmode="decimal" name="sueldo" placeholder="0.00"></label>
     <div class="bar" style="margin:16px 0 0">${isNew ? '' : '<button type="button" class="x" id="del">Eliminar</button>'}<span style="flex:1"></span><button type="button" class="g" id="cancel">Cancelar</button><button class="b">Guardar</button></div></form>`;
-  const f = $('#f'); f.elements.name.value = e.name; f.elements.area.value = e.area || ''; f.elements.alta.value = e.alta; f.elements.prev.value = e.prev || '';
+  const f = $('#f'); f.elements.name.value = e.name; f.elements.area.value = e.area || ''; f.elements.alta.value = e.alta; f.elements.prev.value = e.prev || ''; f.elements.sueldo.value = e.sueldo || ''; f.elements.nac.value = e.nac || '';
   $('#cancel').onclick = () => d.close();
   if ($('#del')) $('#del').onclick = () => askConfirm('¿Eliminar a esta persona y todas sus vacaciones e incidencias?', () => { (e.docs || []).forEach(x => fdel(x.id)); if (e.photo) fdel(e.photo.id); S.team = S.team.filter(x => x.id !== e.id); S.vac = S.vac.filter(x => x.empId !== e.id); S.inc = S.inc.filter(x => x.empId !== e.id); save(); $('#dlg').close(); render(); });
-  f.onsubmit = () => { const n = {...e, name: f.elements.name.value.trim(), area: f.elements.area.value.trim(), alta: f.elements.alta.value, prev: num(f.elements.prev.value)}; S.team = isNew ? [...S.team, n] : S.team.map(x => x.id === e.id ? n : x); save(); render(); toast('Persona guardada ✓'); };
+  f.onsubmit = () => { const n = {...e, name: f.elements.name.value.trim(), area: f.elements.area.value.trim(), alta: f.elements.alta.value, prev: num(f.elements.prev.value), sueldo: num(f.elements.sueldo.value), nac: f.elements.nac.value || ''}; S.team = isNew ? [...S.team, n] : S.team.map(x => x.id === e.id ? n : x); save(); render(); toast('Persona guardada ✓'); };
   if (!d.open) d.showModal();
 }
 /* ---------- Ficha del colaborador: vacaciones por año + expediente ---------- */
 const DOC_TIPOS = ['INE o identificación oficial', 'CURP', 'RFC / Constancia de situación fiscal', 'NSS / alta en el IMSS', 'Acta de nacimiento', 'Comprobante de domicilio', 'Contrato laboral', 'Estado de cuenta (CLABE) para nómina', 'Comprobante de estudios', 'CV / carta de recomendación'];
 const DOC_MAX = 5 * 1024 * 1024;
+let EXP_OPEN = false; // el expediente recuerda si estaba abierto al subir un archivo
 const fmtKB = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
 function fichaDialog(id) {
   const e = S.team.find(x => x.id === id); if (!e) return;
@@ -874,8 +945,9 @@ function fichaDialog(id) {
   const upBtn = k => `<label class="g" style="cursor:pointer;display:inline-block;padding:4px 10px;border:1px solid var(--bd);border-radius:8px;font-size:12px;white-space:nowrap">Subir<input type="file" hidden multiple accept=".pdf,.jpg,.jpeg,.png,.heic,.xml,.doc,.docx" data-kind="${esc(k)}"></label>`;
   const tiposOk = DOC_TIPOS.filter(t => docs.some(x => x.kind === t)).length, otros = docs.filter(x => !DOC_TIPOS.includes(x.kind));
   d.style.width = 'min(780px,95vw)'; d.style.maxHeight = '92vh'; d.style.overflow = 'auto';
-  d.dataset.ficha = id; d.addEventListener('close', () => { d.style.width = ''; d.style.maxHeight = ''; d.style.overflow = ''; delete d.dataset.ficha; }, {once: true});
-  d.innerHTML = `<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div style="display:flex;gap:16px;align-items:center"><div style="text-align:center">${avatar(e, 'lg')}<div style="margin-top:6px;font-size:12px"><label style="cursor:pointer;color:var(--link);text-decoration:underline">${e.photo ? 'Cambiar' : 'Agregar foto'}<input type="file" hidden accept="image/*" id="fotoIn"></label>${e.photo ? ` · <a href="#" data-a="foto-del" data-id="${e.id}" class="bad">quitar</a>` : ''}</div></div><div><h2 style="margin:0">${esc(e.name)}</h2><div class="mut" style="margin-top:2px">${esc(e.area || 'Sin puesto')} · alta ${fmtDate(e.alta)} · ${b.years >= 1 ? b.years + (b.years === 1 ? ' año' : ' años') : b.months + ' meses'} de antigüedad</div></div></div><button type="button" class="g" id="fx">Cerrar</button></div>
+  if (!d.open) EXP_OPEN = false; d.dataset.ficha = id; d.addEventListener('close', () => { d.style.width = ''; d.style.maxHeight = ''; d.style.overflow = ''; delete d.dataset.ficha; }, {once: true});
+  d.innerHTML = `<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div style="display:flex;gap:16px;align-items:center"><div style="text-align:center">${avatar(e, 'lg')}<div style="margin-top:6px;font-size:12px"><label style="cursor:pointer;color:var(--link);text-decoration:underline">${e.photo ? 'Cambiar' : 'Agregar foto'}<input type="file" hidden accept="image/*" id="fotoIn"></label>${e.photo ? ` · <a href="#" data-a="foto-del" data-id="${e.id}" class="bad">quitar</a>` : ''}</div></div><div><h2 style="margin:0">${esc(e.name)}</h2><div class="mut" style="margin-top:2px">${esc(e.area || 'Sin puesto')} · alta ${fmtDate(e.alta)} · ${b.years >= 1 ? b.years + (b.years === 1 ? ' año' : ' años') : b.months + ' meses'} de antigüedad</div>${(() => { const cu = cumple(e.nac); return cu ? `<div style="margin-top:2px"><b>${cu.edad} años</b> · cumpleaños el ${cu.texto}${cu.dias === 0 ? ' <span class="tag c">¡hoy!</span>' : cu.dias <= 30 ? ` <span class="tag p">en ${cu.dias} ${cu.dias === 1 ? 'día' : 'días'}</span>` : ''}</div>` : `<div class="mut" style="margin-top:2px">Sin fecha de nacimiento · <a href="#" data-a="emp-edit" data-id="${e.id}">agregar</a></div>`; })()}</div></div><button type="button" class="g" id="fx">Cerrar</button></div>
+    ${auditCard(auditoriaRH().filter(a => a.emp === e.id), 'ficha')}
     <div class="grid" style="margin:16px 0 0;grid-template-columns:repeat(4,1fr)">
       <div class="card kpi" style="padding:12px"><div class="l">Corresponden</div><div class="v" style="font-size:20px">${b.entitled}</div></div>
       <div class="card kpi" style="padding:12px"><div class="l">Ajuste</div><div class="v" style="font-size:20px">${b.prev || '—'}</div></div>
@@ -884,12 +956,17 @@ function fichaDialog(id) {
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:22px"><h3 style="margin:0">Historial de vacaciones</h3><button type="button" class="b" data-a="vac-new" data-id="${e.id}">+ Registrar vacaciones</button></div>
     ${years.map(vacYear).join('')}
     ${incs.length ? `<h3 style="margin:24px 0 4px">Incidencias</h3>${incs.map(incRow).join('')}` : ''}
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:26px"><h3 style="margin:0">Expediente</h3><span class="mut">${tiposOk} de ${DOC_TIPOS.length} documentos básicos</span></div>
-    <p class="mut" style="margin:4px 0 8px;font-size:12px">PDF, imagen o XML, de hasta 5 MB cada uno. Quedan guardados en tu base de datos, solo visibles para ti.</p>
-    ${DOC_TIPOS.map(t => { const l = docs.filter(x => x.kind === t); return `<div style="border-top:1px solid var(--bd);padding:8px 0"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span>${l.length ? '<span class="ok">✓</span>' : '<span class="mut">○</span>'} ${esc(t)}</span>${upBtn(t)}</div>${l.map(fileRow).join('')}</div>`; }).join('')}
-    <div style="border-top:1px solid var(--bd);padding:8px 0"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span>Otros documentos</span>${upBtn('Otro')}</div>${otros.map(fileRow).join('')}</div>
+    <details id="expDet" style="margin-top:24px;border:1px solid var(--bd);border-radius:10px" ${EXP_OPEN ? 'open' : ''}>
+      <summary style="cursor:pointer;padding:14px 16px;list-style:none;display:flex;align-items:center;gap:14px"><span style="font-weight:600">Expediente</span><span style="flex:1;height:6px;border-radius:99px;background:var(--field);overflow:hidden;min-width:60px"><span style="display:block;height:100%;width:${Math.round(tiposOk / DOC_TIPOS.length * 100)}%;background:var(--pri)"></span></span><span class="mut" style="white-space:nowrap">${tiposOk} de ${DOC_TIPOS.length} documentos</span><span class="mut">▾</span></summary>
+      <div style="padding:0 16px 14px">
+        <p class="mut" style="margin:0 0 8px;font-size:12px">PDF, imagen o XML, de hasta 5 MB cada uno. Quedan guardados en tu base de datos, solo visibles para ti.</p>
+        ${DOC_TIPOS.map(t => { const l = docs.filter(x => x.kind === t); return `<div style="border-top:1px solid var(--bd);padding:8px 0"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span>${l.length ? '<span class="ok">✓</span>' : '<span class="mut">○</span>'} ${esc(t)}${l.length ? '' : ' <span class="tag p">falta</span>'}</span>${upBtn(t)}</div>${l.map(fileRow).join('')}</div>`; }).join('')}
+        <div style="border-top:1px solid var(--bd);padding:8px 0"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span>Otros documentos</span>${upBtn('Otro')}</div>${otros.map(fileRow).join('')}</div>
+      </div>
+    </details>
     <div class="bar" style="margin:18px 0 0"><button type="button" class="g" data-a="emp-edit" data-id="${e.id}">Editar datos</button></div>`;
   $('#fx').onclick = () => d.close();
+  $('#expDet').addEventListener('toggle', ev => { EXP_OPEN = ev.target.open; });
   hydrateFotos();
   $('#fotoIn').onchange = async ev => {
     const f = ev.target.files[0]; if (!f) return;
